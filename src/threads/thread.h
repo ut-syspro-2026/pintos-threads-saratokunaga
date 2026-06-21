@@ -85,8 +85,12 @@ struct thread {
   enum thread_status status; /**< Thread state. */
   char name[16];             /**< Name (for debugging purposes). */
   uint8_t *stack;            /**< Saved stack pointer. */
+  int base_priority;
   int priority;              /**< Priority. */
   struct list_elem allelem;  /**< List element for all threads list. */
+
+  struct list locks;
+  struct lock *waiting_lock;
 
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /**< List element. */
@@ -137,5 +141,8 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+int recompute_priority(struct thread *t);
+void thread_donate_priority(struct thread *holder, int priority, int depth);
 
 #endif /**< threads/thread.h */

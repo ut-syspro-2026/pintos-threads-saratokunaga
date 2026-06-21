@@ -310,7 +310,8 @@ void thread_foreach(thread_action_func *func, void *aux) {
 
 /** Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-  thread_current()->priority = new_priority;
+  thread_current()->base_priority = new_priority;
+  thread_current()->priority = recompute_priority(thread_current());
   thread_yield();
 }
 
@@ -413,11 +414,15 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t *)t + PGSIZE;
   t->priority = priority;
+  t->base_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
   intr_set_level(old_level);
+
+  list_init(&t->locks);
+  t->waiting_lock = NULL;
 }
 
 /** Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -522,3 +527,31 @@ static tid_t allocate_tid(void) {
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
+int recompute_priority(struct thread *t){
+  struct list_elem *e;
+  int max_pri = t->base_priority;
+  
+  for (e = list_begin(&t->locks); e != list_end(&t->locks); e = list_next(e)) {
+    struct lock *l = list_entry(e, struct lock, elem);
+    if (!list_empty(&l->semaphore.waiters)){
+      struct list_elem *front = list_front(&l->semaphore.waiters);
+      struct thread *waiter   = list_entry(front, struct thread, elem);
+      if (max_pri < waiter->priority){
+        max_pri = waiter->priority;
+      }
+    }
+  }
+  return max_pri;
+}
+
+void thread_donate_priority(struct thread *holder, int priority, int depth){
+  if (depth >= 8){
+    return;
+  }
+  if (holder->priority < priority){
+    holder->priority = priority;
+    if(holder->waiting_lock != NULL){
+      thread_donate_priority(holder->waiting_lock->holder, priority, depth += 1);
+    }
+  }
+}
